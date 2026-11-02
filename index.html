@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fff0f4">
+  <title>دنیای پیام‌های عاشقانه</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="page">
+    <div class="top-heart" aria-hidden="true">♥</div>
+    <section class="app">
+      <p class="eyebrow">یک پیام قشنگ برای یک آدم قشنگ</p>
+      <h1>دنیای <span>عاشقانه</span></h1>
+      <p class="intro">هر بار یک پیام تازه، با کمک هوش مصنوعی Gemini</p>
+
+      <div class="api-panel">
+        <label for="apiKey">کلید API جمنای</label>
+        <div class="key-row">
+          <input id="apiKey" type="password" placeholder="کلید Gemini را وارد کن" autocomplete="off">
+          <button id="toggleKey" class="eye-btn" type="button" aria-label="نمایش یا مخفی کردن کلید">◉</button>
+        </div>
+        <div class="key-actions">
+          <button id="saveKey" class="save-btn" type="button">ذخیره کلید</button>
+          <span id="keyStatus" class="key-status">کلید فقط در همین مرورگر ذخیره می‌شود.</span>
+        </div>
+      </div>
+
+      <div class="main-actions">
+        <button class="type-btn love" id="loveBtn" type="button">
+          <span class="btn-icon">♥</span>
+          <span>پیام عاشقانه</span>
+        </button>
+        <button class="type-btn morning" id="morningBtn" type="button">
+          <span class="btn-icon">☀</span>
+          <span>صبح بخیر</span>
+        </button>
+      </div>
+
+      <section class="result-card" aria-live="polite">
+        <div class="result-head">
+          <span class="sparkle">✦</span>
+          <span id="resultLabel">پیامت اینجا میاد</span>
+        </div>
+        <div id="message" class="message">یکی از دکمه‌های بالا رو بزن تا یک پیام قشنگ برات بسازم…</div>
+        <div id="sourceNote" class="source-note"></div>
+        <div class="result-actions">
+          <button id="copyBtn" class="copy-btn" type="button" disabled>▢ کپی پیام</button>
+          <span id="copyStatus" class="copy-status"></span>
+        </div>
+      </section>
+
+      <p class="footnote">برای ساخت هر پیام، جست‌وجوی وب Gemini فعال می‌شود؛ متن نهایی اختصاصی و بازنویسی‌شده است.</p>
+    </section>
+    <div class="bottom-hearts" aria-hidden="true">♡　♥　♡</div>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
