@@ -1,179 +1,300 @@
-// جست‌وجوی واقعی وب بدون کلید API؛ منبع: Purili Search API
-const SEARCH_API = "https://puri.li/api/search";
-const CONTEXT_API = "https://puri.li/api/context";
 
-const apiKeyInput = document.getElementById("apiKey");
-const keyPanel = document.querySelector(".api-panel");
-if (keyPanel) keyPanel.style.display = "none";
+const SEARCH_URL = "https://s.jina.ai/";
 
-const messageBox = document.getElementById("message");
-const resultLabel = document.getElementById("resultLabel");
-const sourceNote = document.getElementById("sourceNote");
-const copyBtn = document.getElementById("copyBtn");
-const copyStatus = document.getElementById("copyStatus");
-const loveBtn = document.getElementById("loveBtn");
-const morningBtn = document.getElementById("morningBtn");
+const $ = id => document.getElementById(id);
 
-const nicknames = ["عشق من", "نفسم", "زندگیم", "جیگرم", "همه‌چیزم", "قشنگ‌ترینم", "عزیز دلم", "جان دلم", "ماه من", "دلبرم"];
-const usedUrls = new Set();
+const messageBox = $("message");
+const resultLabel = $("resultLabel");
+const sourceNote = $("sourceNote");
+const copyBtn = $("copyBtn");
+const copyStatus = $("copyStatus");
+const loveBtn = $("loveBtn");
+const morningBtn = $("morningBtn");
+
+document.querySelector(".api-panel")?.remove();
+
+const nicknames = [
+  "عشق من", "نفسم", "زندگیم", "جیگرم",
+  "همه‌چیزم", "عزیز دلم", "جان دلم",
+  "ماه من", "دلبرم", "قشنگ‌ترینم"
+];
+
 let currentMessage = "";
 let lastNickname = "";
+let usedTexts = [];
 
-function chooseNickname() {
-  const options = nicknames.filter(x => x !== lastNickname);
-  lastNickname = options[Math.floor(Math.random() * options.length)];
+function randomNickname() {
+  const choices = nicknames.filter(x => x !== lastNickname);
+  lastNickname = choices[Math.floor(Math.random() * choices.length)];
   return lastNickname;
 }
 
-function cleanText(value) {
-  return (value || "")
+function cleanText(text) {
+  return String(text || "")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
     .replace(/https?:\/\/\S+/g, "")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/[\u0000-\u001f]/g, " ")
+    .replace(/<[^>]*>/g, "")
+    .replace(/[*_`>#]/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function extractMessage(text, type) {
-  const normalized = cleanText(text);
-  if (!normalized) return "";
+function isPersian(text) {
+  const fa = (text.match(/[آ-ی]/g) || []).length;
+  const en = (text.match(/[a-zA-Z]/g) || []).length;
+  return fa > en;
+}
 
-  // متن صفحه را به جمله‌ها تقسیم می‌کنیم و جمله‌های مرتبط را برمی‌داریم.
-  const sentences = normalized
-    .split(/(?<=[.!؟!?۔])\s+|[\r\n]+/)
-    .map(s => s.trim())
-    .filter(s => s.length >= 28 && s.length <= 420);
+function scoreText(text, type) {
+  if (text.length < 100 || text.length > 650) return -100;
+  if (!isPersian(text)) return -100;
 
-  const terms = type === "morning"
-    ? ["صبح", "خورشید", "بیدار", "روزت", "صبحگاهی", "سپیده"]
-    : ["عشق", "دوستت", "دلم", "عاشق", "محبت", "قلب", "عزیز"];
+  const badWords = [
+    "تبلیغات", "ثبت نام", "ورود به سایت",
+    "مطالب مرتبط", "تمام حقوق محفوظ",
+    "اشتراک گذاری", "کانال تلگرام",
+    "منبع عکس", "کپی رایت", "نظرات کاربران"
+  ];
 
-  const relevant = sentences.filter(s => terms.some(t => s.includes(t)));
-  const pool = relevant.length ? relevant : sentences;
-  if (!pool.length) return normalized.slice(0, 420);
+  if (badWords.some(w => text.includes(w))) return -100;
 
-  // از بین بخش‌های مرتبط، موردی تازه انتخاب می‌شود.
-  const start = Math.floor(Math.random() * pool.length);
-  const chosen = [];
-  for (let i = 0; i < Math.min(3, pool.length); i++) {
-    const item = pool[(start + i) % pool.length];
-    if (!chosen.includes(item)) chosen.push(item);
+  const words = type === "morning"
+    ? ["صبح", "خورشید", "روزت", "آفتاب", "بیدار", "سپیده"]
+    : ["عشق", "دوستت", "دلم", "عاشق", "قلب", "جانم", "زندگی"];
+
+  let score = 0;
+
+  for (const word of words) {
+    if (text.includes(word)) score += 3;
   }
-  return chosen.join(" ").slice(0, 700);
+
+  if (text.length > 160) score += 2;
+  if (/[.!؟]$/.test(text)) score += 2;
+
+  return score;
 }
 
-async function searchWeb(query) {
-  const url = `${SEARCH_API}?q=${encodeURIComponent(query)}&page=1`;
-  const response = await fetch(url, { method: "GET", headers: { "Accept": "application/json" } });
-  if (!response.ok) throw new Error(`سرویس جست‌وجو پاسخ نداد (HTTP ${response.status}).`);
-  const data = await response.json();
-  return Array.isArray(data.results) ? data.results : [];
+function extractResults(data) {
+  let results = [];
+
+  function walk(obj) {
+    if (!obj) return;
+
+    if (Array.isArray(obj)) {
+      obj.forEach(walk);
+      return;
+    }
+
+    if (typeof obj === "object") {
+      if (obj.content || obj.description || obj.snippet) {
+        results.push({
+          title: obj.title || "منبع اینترنتی",
+          url: obj.url || "",
+          content: obj.content || obj.description || obj.snippet
+        });
+      }
+
+      Object.values(obj).forEach(value => {
+        if (typeof value === "object") walk(value);
+      });
+    }
+  }
+
+  walk(data);
+
+  if (typeof data === "string") {
+    results.push({
+      title: "نتیجه جست‌وجوی وب",
+      url: "",
+      content: data
+    });
+  }
+
+  return results;
 }
 
-async function fetchPageText(result) {
-  const response = await fetch(`${CONTEXT_API}?url=${encodeURIComponent(result.url)}`, {
-    method: "GET",
-    headers: { "Accept": "application/json" }
-  });
-  if (!response.ok) return "";
-  const data = await response.json();
-  return cleanText([data.title, data.summary, data.content, ...(data.passages || [])].join(" "));
-}
-
-async function findOnlineMessage(type) {
+async function searchWeb(type) {
   const queries = type === "morning"
-    ? ["متن صبح بخیر عاشقانه برای عشق زندگی", "پیام صبح بخیر احساسی عاشقانه فارسی"]
-    : ["متن پیام عاشقانه احساسی فارسی برای عشق", "جملات عاشقانه زیبا و احساسی فارسی"];
+    ? [
+        "متن کامل صبح بخیر عاشقانه زیبا برای عشق",
+        "پیام صبح بخیر عاشقانه احساسی فارسی"
+      ]
+    : [
+        "متن کامل پیام عاشقانه احساسی فارسی",
+        "جملات عاشقانه زیبا برای ابراز عشق"
+      ];
 
-  let allResults = [];
+  let candidates = [];
+
   for (const query of queries) {
-    const results = await searchWeb(query);
-    allResults.push(...results);
-    if (allResults.length >= 5) break;
+    const url = SEARCH_URL + encodeURIComponent(query);
+
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Accept": "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error("سرویس جست‌وجوی اینترنت پاسخ نداد: " + response.status);
+    }
+
+    const data = await response.json();
+    const results = extractResults(data);
+
+    for (const result of results) {
+      const content = String(result.content || "");
+
+      const paragraphs = content
+        .split(/\n+/)
+        .map(cleanText)
+        .filter(Boolean);
+
+      for (const paragraph of paragraphs) {
+        const score = scoreText(paragraph, type);
+
+        if (score >= 5) {
+          candidates.push({
+            text: paragraph,
+            title: result.title,
+            url: result.url,
+            score
+          });
+        }
+      }
+    }
+
+    if (candidates.length >= 5) break;
   }
 
   const unique = [];
   const seen = new Set();
-  for (const item of allResults) {
-    if (item?.url && !seen.has(item.url)) {
-      seen.add(item.url);
+
+  for (const item of candidates) {
+    const key = item.text.replace(/\s/g, "");
+
+    if (!seen.has(key) && !usedTexts.includes(key)) {
+      seen.add(key);
       unique.push(item);
     }
   }
 
-  // نتیجه‌های استفاده‌نشده در اولویت‌اند؛ اگر همه استفاده شدند، چرخه از نو شروع می‌شود.
-  let candidates = unique.filter(x => !usedUrls.has(x.url));
-  if (!candidates.length) {
-    usedUrls.clear();
-    candidates = unique;
+  if (!unique.length) {
+    throw new Error(
+      "متن کامل و مناسبی پیدا نشد. دوباره جست‌وجو کن."
+    );
   }
-  if (!candidates.length) throw new Error("برای این موضوع نتیجه‌ای پیدا نشد. کمی بعد دوباره امتحان کن.");
 
-  // چند صفحه را امتحان می‌کنیم تا متن قابل استفاده پیدا شود.
-  for (const item of candidates.sort(() => Math.random() - 0.5).slice(0, 5)) {
-    usedUrls.add(item.url);
-    let pageText = "";
-    try { pageText = await fetchPageText(item); } catch (_) {}
-    const excerpt = extractMessage(pageText || item.description || item.title, type);
-    if (excerpt && excerpt.length >= 25) {
-      return { text: excerpt, title: cleanText(item.title) || "منبع اینترنتی", url: item.url };
-    }
+  unique.sort((a, b) => b.score - a.score);
+
+  const best = unique[
+    Math.floor(Math.random() * Math.min(4, unique.length))
+  ];
+
+  usedTexts.push(best.text.replace(/\s/g, ""));
+
+  if (usedTexts.length > 30) {
+    usedTexts.shift();
   }
-  throw new Error("نتایج پیدا شدند، اما متن قابل استخراج از صفحات در دسترس نبود. دوباره امتحان کن.");
+
+  return best;
 }
 
-async function generateMessage(type) {
-  resultLabel.textContent = type === "morning" ? "در حال جست‌وجوی پیام صبح بخیر…" : "در حال جست‌وجوی پیام عاشقانه…";
-  messageBox.textContent = "دارم در اینترنت جست‌وجو می‌کنم و متن مناسب را از یک صفحه پیدا می‌کنم…";
-  messageBox.classList.add("loading");
-  sourceNote.textContent = "";
-  copyBtn.disabled = true;
-  copyStatus.textContent = "";
+function escapeHTML(text) {
+  return String(text).replace(/[&<>"']/g, c => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[c]);
+}
+
+async function generate(type) {
+  const isMorning = type === "morning";
+
   loveBtn.disabled = true;
   morningBtn.disabled = true;
+  copyBtn.disabled = true;
+
+  copyStatus.textContent = "";
+  sourceNote.textContent = "";
+
+  resultLabel.textContent = "در حال جست‌وجو در اینترنت...";
+
+  messageBox.classList.add("loading");
+  messageBox.textContent =
+    "در حال پیدا کردن یک پیام عاشقانه کامل و زیبا...";
 
   try {
-    const found = await findOnlineMessage(type);
-    const ending = type === "morning"
-      ? `صبح بخیر ${chooseNickname()} 😘😘😘 ❤️`
-      : `دوستت دارم ${chooseNickname()} 😘😘😘 ❤️`;
-    currentMessage = `${found.text}\n\n—\n${ending}`;
+    const result = await searchWeb(type);
+
+    const ending = isMorning
+      ? `صبح بخیر ${randomNickname()} 😘😘😘 ❤️`
+      : `دوستت دارم ${randomNickname()} 😘😘😘 ❤️`;
+
+    currentMessage =
+      `${result.text}\n\nــــــــــــــــــــ\n${ending}`;
+
     messageBox.textContent = currentMessage;
     messageBox.classList.remove("loading");
-    resultLabel.textContent = type === "morning" ? "پیام صبح بخیر پیدا شد" : "پیام عاشقانه پیدا شد";
-    sourceNote.innerHTML = `منبع: <a href="${found.url}" target="_blank" rel="noopener noreferrer">${escapeHtml(found.title)}</a>`;
+
+    resultLabel.textContent = isMorning
+      ? "پیام صبح بخیر آماده شد"
+      : "پیام عاشقانه آماده شد";
+
+    if (result.url) {
+      sourceNote.innerHTML =
+        `منبع: <a href="${escapeHTML(result.url)}"
+        target="_blank" rel="noopener noreferrer">
+        ${escapeHTML(result.title)}</a>`;
+    } else {
+      sourceNote.textContent = "منبع: نتایج جست‌وجوی اینترنت";
+    }
+
     copyBtn.disabled = false;
+
   } catch (error) {
-    messageBox.textContent = `نتوانستم پیام را از اینترنت دریافت کنم.\n\n${error.message}\n\nاتصال اینترنت را بررسی کن و دوباره بزن.`;
     messageBox.classList.remove("loading");
-    resultLabel.textContent = "جست‌وجو ناموفق بود";
+
+    resultLabel.textContent = "خطا در جست‌وجو";
+
+    messageBox.textContent =
+      "نتوانستم پیام مناسبی پیدا کنم.\n\n" +
+      error.message +
+      "\n\nاتصال اینترنت را بررسی کن و دوباره امتحان کن.";
+
   } finally {
     loveBtn.disabled = false;
     morningBtn.disabled = false;
   }
 }
 
-function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, ch => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  })[ch]);
-}
+loveBtn.addEventListener("click", () => generate("love"));
 
-loveBtn.addEventListener("click", () => generateMessage("love"));
-morningBtn.addEventListener("click", () => generateMessage("morning"));
+morningBtn.addEventListener("click", () => generate("morning"));
 
 copyBtn.addEventListener("click", async () => {
   if (!currentMessage) return;
+
   try {
     await navigator.clipboard.writeText(currentMessage);
-    copyStatus.textContent = "پیام کپی شد ❤️";
+    copyStatus.textContent = "کپی شد ❤️";
+
   } catch {
-    const helper = document.createElement("textarea");
-    helper.value = currentMessage;
-    document.body.appendChild(helper);
-    helper.select();
-    const ok = document.execCommand("copy");
-    helper.remove();
-    copyStatus.textContent = ok ? "پیام کپی شد ❤️" : "کپی خودکار ممکن نشد؛ متن را انتخاب کن.";
+    const textarea = document.createElement("textarea");
+    textarea.value = currentMessage;
+
+    document.body.appendChild(textarea);
+    textarea.select();
+
+    const success = document.execCommand("copy");
+    textarea.remove();
+
+    copyStatus.textContent = success
+      ? "کپی شد ❤️"
+      : "کپی انجام نشد";
   }
 });
